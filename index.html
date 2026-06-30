@@ -1282,6 +1282,21 @@ function generarPDF(loanId) {
     throw new Error('El plugin de tablas (autoTable) no cargó. Revisa tu conexión a internet e intenta de nuevo.');
   }
 
+  // Helper: texto seguro para evitar "Invalid argument" en jsPDF
+  const safeText = (txt, x, yPos, opts) => {
+    const s = (txt === null || txt === undefined) ? '' : String(txt);
+    doc.text(s, x, yPos, opts);
+  };
+
+  // Helper: color seguro — evita "Invalid argument" si el array de color es inválido
+  const safeColor = (fn, rgb) => {
+    if (!Array.isArray(rgb) || rgb.length !== 3 || rgb.some(v => typeof v !== 'number' || isNaN(v))) {
+      fn.call(doc, 0, 0, 0);
+      return;
+    }
+    fn.apply(doc, rgb);
+  };
+
   const W = 210, mg = 18;
   const cw = W - mg * 2;
   let y = mg;
@@ -1296,25 +1311,25 @@ function generarPDF(loanId) {
   const MUTED  = [107, 114, 128];
 
   // ── Header ──
-  doc.setFillColor(...DARK);
+  safeColor(doc.setFillColor, DARK);
   doc.rect(0, 0, W, 38, 'F');
-  doc.setFillColor(...GREEN);
+  safeColor(doc.setFillColor, GREEN);
   doc.rect(0, 36, W, 2, 'F');
 
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(20); doc.setTextColor(...GREEN);
-  doc.text('PrestApp', mg, y + 8);
+  doc.setFontSize(20); safeColor(doc.setTextColor, GREEN);
+  safeText('PrestApp', mg, y + 8);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10); doc.setTextColor(...MUTED);
-  doc.text('Control de préstamos · 10% mensual · Pago diario', mg, y + 15);
-  doc.setFontSize(10); doc.setTextColor(...TEXT);
-  doc.text(`Estado de cuenta: ${l.nombre}`, mg, y + 23);
-  doc.setTextColor(...MUTED);
-  doc.text(`Generado: ${fmtDate(today())}`, W - mg, y + 23, { align: 'right' });
+  doc.setFontSize(10); safeColor(doc.setTextColor, MUTED);
+  safeText('Control de préstamos · 10% mensual · Pago diario', mg, y + 15);
+  doc.setFontSize(10); safeColor(doc.setTextColor, TEXT);
+  safeText(`Estado de cuenta: ${l.nombre}`, mg, y + 23);
+  safeColor(doc.setTextColor, MUTED);
+  safeText(`Generado: ${fmtDate(today())}`, W - mg, y + 23, { align: 'right' });
   y = 46;
 
   // ── Resumen general ──
-  doc.setFillColor(...SURF);
+  safeColor(doc.setFillColor, SURF);
   doc.roundedRect(mg, y, cw, 44, 3, 3, 'F');
 
   const cols6 = cw / 3;
@@ -1322,7 +1337,7 @@ function generarPDF(loanId) {
     ['Capital prestado', fmt(l.monto), 'Cuota diaria', fmt(c.cuotaDiaria), 'Tasa mensual', `${l.tasa||10}%`],
     ['Total a devolver', fmt(c.totalDeuda), 'Días efectivos', `${c.plazoEfectivo} días`, 'Inicio', fmtDate(l.fecha)],
     ['Total cobrado', fmt(c.totalCobrado), 'Días pagados', `${c.diasPagados} / ${c.plazoEfectivo}`, 'Vencimiento', fmtDate(c.fechaFin)],
-    ['Saldo pendiente', l.cerrado ? '$0' : fmt(c.saldo), 'Días en mora', `${c.diasMora} días`, 'Estado', l.cerrado ? 'CERRADO' : c.diasMora > 0 ? 'CON MORA' : 'AL DÍA'],
+    ['Saldo pendiente', l.cerrado ? '$0' : fmt(c.saldo), 'Días en mora', `${c.diasMora} días`, 'Estado', l.cerrado ? 'CERRADO' : c.diasMora > 0 ? 'CON MORA' : 'AL DIA'],
   ];
 
   datosRes.forEach((row, ri) => {
@@ -1330,34 +1345,34 @@ function generarPDF(loanId) {
       const x = mg + ci * cols6 + 4;
       const yRow = y + 6 + ri * 10;
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8); doc.setTextColor(...MUTED);
-      doc.text(row[ci*2], x, yRow);
+      doc.setFontSize(8); safeColor(doc.setTextColor, MUTED);
+      safeText(row[ci*2], x, yRow);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
       const val = row[ci*2+1];
       const isGreen = val.startsWith('$') && ri === 2;
       const isRed   = (ri === 3 && ci === 0 && !l.cerrado && c.saldo > 1) || (ri === 3 && ci === 2 && !l.cerrado && c.diasMora > 0);
       const isAmber = ri === 3 && ci === 1 && !l.cerrado;
-      doc.setTextColor(...(isGreen ? GREEN : isRed ? RED : isAmber ? AMBER : TEXT));
-      doc.text(val, x, yRow + 5);
+      safeColor(doc.setTextColor, (isGreen ? GREEN : isRed ? RED : isAmber ? AMBER : TEXT));
+      safeText(val, x, yRow + 5);
     }
   });
   y += 50;
 
   // ── Cierre anticipado (si aplica) ──
   if (l.cerrado) {
-    doc.setFillColor(...[13,40,24]);
+    safeColor(doc.setFillColor, [13,40,24]);
     doc.roundedRect(mg, y, cw, 14, 3, 3, 'F');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...GREEN);
-    doc.text(`✓ Crédito cerrado anticipadamente el ${fmtDate(l.fechaCierre)}`, mg + 4, y + 6);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...[34,197,94]);
-    doc.text(`Pago final: ${fmt(l.pagoCierre)} · Interés sobre ${c.diasReales} días reales`, mg + 4, y + 11);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); safeColor(doc.setTextColor, GREEN);
+    safeText(`✓ Crédito cerrado anticipadamente el ${fmtDate(l.fechaCierre)}`, mg + 4, y + 6);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); safeColor(doc.setTextColor, [34,197,94]);
+    safeText(`Pago final: ${fmt(l.pagoCierre)} · Interés sobre ${c.diasReales} días reales`, mg + 4, y + 11);
     y += 18;
   }
 
   // ── Tabla de pagos diarios ──
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...TEXT);
-  doc.text('Historial de pagos diarios', mg, y + 6);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); safeColor(doc.setTextColor, TEXT);
+  safeText('Historial de pagos diarios', mg, y + 6);
   y += 10;
 
   const filasPago = [];
@@ -1411,8 +1426,8 @@ function generarPDF(loanId) {
   // ── Tabla de abonos ──
   if (l.abonos && l.abonos.length) {
     if (y > 240) { doc.addPage(); y = mg; }
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...TEXT);
-    doc.text('Abonos y pagos especiales', mg, y + 6);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); safeColor(doc.setTextColor, TEXT);
+    safeText('Abonos y pagos especiales', mg, y + 6);
     y += 10;
     doc.autoTable({
       startY: y,
@@ -1430,26 +1445,26 @@ function generarPDF(loanId) {
 
   // ── Resumen final ──
   if (y > 250) { doc.addPage(); y = mg; }
-  doc.setFillColor(...SURF);
+  safeColor(doc.setFillColor, SURF);
   doc.roundedRect(mg, y, cw, 22, 3, 3, 'F');
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...MUTED);
-  doc.text('TOTAL COBRADO', mg + 4, y + 8);
-  doc.text('SALDO FINAL', mg + cw/2, y + 8);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); safeColor(doc.setTextColor, MUTED);
+  safeText('TOTAL COBRADO', mg + 4, y + 8);
+  safeText('SALDO FINAL', mg + cw/2, y + 8);
   doc.setFontSize(13);
-  doc.setTextColor(...GREEN);
-  doc.text(fmt(c.totalCobrado), mg + 4, y + 17);
-  doc.setTextColor(l.cerrado || c.saldo <= 1 ? GREEN : RED);
-  doc.text(l.cerrado ? '$0' : fmt(c.saldo), mg + cw/2, y + 17);
+  safeColor(doc.setTextColor, GREEN);
+  safeText(fmt(c.totalCobrado), mg + 4, y + 17);
+  safeColor(doc.setTextColor, l.cerrado || c.saldo <= 1 ? GREEN : RED);
+  safeText(l.cerrado ? '$0' : fmt(c.saldo), mg + cw/2, y + 17);
 
   // ── Pie de página ──
   const pageCount = doc.internal.getNumberOfPages();
   for (let p = 1; p <= pageCount; p++) {
     doc.setPage(p);
-    doc.setFillColor(...DARK);
+    safeColor(doc.setFillColor, DARK);
     doc.rect(0, 285, W, 12, 'F');
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...MUTED);
-    doc.text('PrestApp · Generado con fines de control personal', mg, 291);
-    doc.text(`Página ${p} de ${pageCount}`, W - mg, 291, { align: 'right' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); safeColor(doc.setTextColor, MUTED);
+    safeText('PrestApp · Generado con fines de control personal', mg, 291);
+    safeText(`Página ${p} de ${pageCount}`, W - mg, 291, { align: 'right' });
   }
 
   const nombreArchivo = `prestamo_${l.nombre.replace(/\s+/g,'_')}_${today()}.pdf`;
