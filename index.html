@@ -1301,173 +1301,303 @@ function generarPDF(loanId) {
   const cw = W - mg * 2;
   let y = mg;
 
-  const GREEN  = [34,  197, 94];
-  const RED    = [239, 68,  68];
-  const AMBER  = [245, 158, 11];
-  const DARK   = [15,  17,  23];
-  const SURF   = [26,  29,  39];
-  const BORDER = [42,  45,  58];
-  const TEXT   = [232, 234, 240];
-  const MUTED  = [107, 114, 128];
+  // ── Paleta blanco y negro (documento formal) ──
+  const BLACK   = [0, 0, 0];
+  const DARKGRY = [60, 60, 60];
+  const GRAY    = [120, 120, 120];
+  const LTGRAY  = [200, 200, 200];
+  const LINE    = [0, 0, 0];
 
-  // ── Header ──
-  safeColor(doc.setFillColor, DARK);
-  doc.rect(0, 0, W, 38, 'F');
-  safeColor(doc.setFillColor, GREEN);
-  doc.rect(0, 36, W, 2, 'F');
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(20); safeColor(doc.setTextColor, GREEN);
-  safeText('PrestApp', mg, y + 8);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10); safeColor(doc.setTextColor, MUTED);
-  safeText('Control de préstamos · 10% mensual · Pago diario', mg, y + 15);
-  doc.setFontSize(10); safeColor(doc.setTextColor, TEXT);
-  safeText(`Estado de cuenta: ${l.nombre}`, mg, y + 23);
-  safeColor(doc.setTextColor, MUTED);
-  safeText(`Generado: ${fmtDate(today())}`, W - mg, y + 23, { align: 'right' });
-  y = 46;
 
-  // ── Resumen general ──
-  safeColor(doc.setFillColor, SURF);
-  doc.roundedRect(mg, y, cw, 44, 3, 3, 'F');
+  // ── Encabezado ──
+  safeColor(doc.setTextColor, BLACK);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(16);
+  safeText('ESTADO DE CUENTA', mg, y + 2);
 
-  const cols6 = cw / 3;
-  const datosRes = [
-    ['Capital prestado', fmt(l.monto), 'Cuota diaria', fmt(c.cuotaDiaria), 'Tasa mensual', `${l.tasa||10}%`],
-    ['Total a devolver', fmt(c.totalDeuda), 'Días efectivos', `${c.plazoEfectivo} días`, 'Inicio', fmtDate(l.fecha)],
-    ['Total cobrado', fmt(c.totalCobrado), 'Días pagados', `${c.diasPagados} / ${c.plazoEfectivo}`, 'Vencimiento', fmtDate(c.fechaFin)],
-    ['Saldo pendiente', l.cerrado ? '$0' : fmt(c.saldo), 'Días en mora', `${c.diasMora} días`, 'Estado', l.cerrado ? 'CERRADO' : c.diasMora > 0 ? 'CON MORA' : 'AL DIA'],
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  safeColor(doc.setTextColor, DARKGRY);
+  safeText('PrestApp — Control de préstamos', W - mg, y + 2, { align: 'right' });
+
+  y += 7;
+  doc.setDrawColor(...LINE);
+  doc.setLineWidth(0.6);
+  doc.line(mg, y, W - mg, y);
+  y += 8;
+
+  // ── Datos del cliente ──
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  safeColor(doc.setTextColor, BLACK);
+  safeText(l.nombre, mg, y);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  safeColor(doc.setTextColor, DARKGRY);
+  safeText(`Generado el ${fmtDate(today())}`, W - mg, y, { align: 'right' });
+  y += 7;
+
+  doc.setFontSize(9);
+  safeColor(doc.setTextColor, DARKGRY);
+  const estadoTxt = l.cerrado ? 'Cerrado anticipadamente' : (c.diasMora > 0 ? 'Con mora' : 'Al día');
+  safeText(`Periodo: ${fmtDate(l.fecha)}  -  ${fmtDate(c.fechaFin)}   ·   Tasa: ${l.tasa||10}% mensual   ·   Estado: ${estadoTxt}`, mg, y);
+  y += 8;
+
+  doc.setLineWidth(0.2);
+  doc.setDrawColor(...LTGRAY);
+  doc.line(mg, y, W - mg, y);
+  y += 8;
+
+  // ── Sección: Resumen financiero ──
+  const seccion = (titulo, yPos) => {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10.5);
+    safeColor(doc.setTextColor, BLACK);
+    safeText(titulo.toUpperCase(), mg, yPos);
+    doc.setLineWidth(0.4);
+    doc.setDrawColor(...LINE);
+    doc.line(mg, yPos + 2, W - mg, yPos + 2);
+    return yPos + 9;
+  };
+
+  y = seccion('Resumen financiero', y);
+
+  const filaResumen = (label, val, yPos, negrita) => {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9.5);
+    safeColor(doc.setTextColor, DARKGRY);
+    safeText(label, mg, yPos);
+    doc.setFont('helvetica', negrita ? 'bold' : 'normal');
+    safeColor(doc.setTextColor, BLACK);
+    safeText(val, W - mg, yPos, { align: 'right' });
+    doc.setLineWidth(0.1);
+    safeColor(doc.setDrawColor, LTGRAY);
+    doc.line(mg, yPos + 2.5, W - mg, yPos + 2.5);
+  };
+
+  const filasRes = [
+    ['Capital prestado', fmt(l.monto), false],
+    ['Tasa de interés mensual', `${l.tasa||10}%`, false],
+    ['Plazo (días efectivos)', `${c.plazoEfectivo} de ${l.plazo} días`, false],
+    ['Cuota diaria', fmt(c.cuotaDiaria), false],
+    ['Total a devolver', fmt(c.totalDeuda), true],
+    ['Total cobrado a la fecha', fmt(c.totalCobrado), true],
+    ['Saldo pendiente', l.cerrado ? fmt(0) : fmt(c.saldo), true],
   ];
+  filasRes.forEach(([label, val, b]) => { filaResumen(label, val, y, b); y += 7; });
+  y += 4;
 
-  datosRes.forEach((row, ri) => {
-    for (let ci = 0; ci < 3; ci++) {
-      const x = mg + ci * cols6 + 4;
-      const yRow = y + 6 + ri * 10;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8); safeColor(doc.setTextColor, MUTED);
-      safeText(row[ci*2], x, yRow);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      const val = row[ci*2+1];
-      const isGreen = val.startsWith('$') && ri === 2;
-      const isRed   = (ri === 3 && ci === 0 && !l.cerrado && c.saldo > 1) || (ri === 3 && ci === 2 && !l.cerrado && c.diasMora > 0);
-      const isAmber = ri === 3 && ci === 1 && !l.cerrado;
-      safeColor(doc.setTextColor, (isGreen ? GREEN : isRed ? RED : isAmber ? AMBER : TEXT));
-      safeText(val, x, yRow + 5);
-    }
-  });
-  y += 50;
+  // ── Sección: Cumplimiento ──
+  y = seccion('Cumplimiento de pagos', y);
+  const filasCump = [
+    ['Días pagados', `${c.diasPagados} de ${c.plazoEfectivo}`, false],
+    ['Días en mora', `${c.diasMora}`, c.diasMora > 0],
+    ['Porcentaje pagado', `${c.pct.toFixed(1)}%`, false],
+  ];
+  filasCump.forEach(([label, val, b]) => { filaResumen(label, val, y, b); y += 7; });
+  y += 4;
 
-  // ── Cierre anticipado (si aplica) ──
   if (l.cerrado) {
-    safeColor(doc.setFillColor, [13,40,24]);
-    doc.roundedRect(mg, y, cw, 14, 3, 3, 'F');
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); safeColor(doc.setTextColor, GREEN);
-    safeText(`✓ Crédito cerrado anticipadamente el ${fmtDate(l.fechaCierre)}`, mg + 4, y + 6);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); safeColor(doc.setTextColor, [34,197,94]);
-    safeText(`Pago final: ${fmt(l.pagoCierre)} · Interés sobre ${c.diasReales} días reales`, mg + 4, y + 11);
-    y += 18;
+    y = seccion('Cierre anticipado', y);
+    filaResumen('Fecha de cierre', fmtDate(l.fechaCierre), y, false); y += 7;
+    filaResumen('Pago final realizado', fmt(l.pagoCierre), y, true); y += 7;
+    y += 4;
   }
 
-  // ── Tabla de pagos diarios ──
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); safeColor(doc.setTextColor, TEXT);
-  safeText('Historial de pagos diarios', mg, y + 6);
-  y += 10;
-
-  const filasPago = [];
-  const t = today();
-  for (let i = 0; i < c.plazoEfectivo; i++) {
-    const d = addDays(l.fecha, i);
-    if (d > t && !l.cerrado) break;
-    if (l.cerrado && d > l.fechaCierre) break;
-    const est = l.dias[d] || 'pendiente';
-    filasPago.push([
-      i + 1,
-      fmtDate(d),
-      est === 'pagado' ? 'Pagó' : 'No pagó',
-      est === 'pagado' ? fmt(c.cuotaDiaria) : '$0'
-    ]);
-  }
-
-  doc.autoTable({
-    startY: y,
-    head: [['#', 'Fecha', 'Estado', 'Monto']],
-    body: filasPago,
-    theme: 'plain',
-    styles: {
-      fontSize: 8, cellPadding: 2.5,
-      textColor: TEXT, lineColor: BORDER, lineWidth: 0.2
-    },
-    headStyles: {
-      fillColor: SURF, textColor: MUTED, fontStyle: 'bold', fontSize: 8
-    },
-    columnStyles: {
-      0: { cellWidth: 10, halign: 'center' },
-      1: { cellWidth: 40 },
-      2: { cellWidth: 30 },
-      3: { cellWidth: 30, halign: 'right' }
-    },
-    alternateRowStyles: { fillColor: [18,21,31] },
-    didParseCell: (data) => {
-      if (data.section === 'body' && data.column.index === 2) {
-        data.cell.styles.textColor = data.cell.raw === 'Pagó' ? GREEN : RED;
-        data.cell.styles.fontStyle = 'bold';
-      }
-      if (data.section === 'body' && data.column.index === 3 && data.cell.raw !== '$0') {
-        data.cell.styles.textColor = GREEN;
-      }
-    },
-    margin: { left: mg, right: mg }
-  });
-
-  y = doc.lastAutoTable.finalY + 8;
-
-  // ── Tabla de abonos ──
+  // ── Sección: Abonos especiales (si existen) ──
   if (l.abonos && l.abonos.length) {
-    if (y > 240) { doc.addPage(); y = mg; }
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); safeColor(doc.setTextColor, TEXT);
-    safeText('Abonos y pagos especiales', mg, y + 6);
-    y += 10;
+    if (y > 250) { doc.addPage(); y = mg; }
+    y = seccion('Abonos y pagos especiales', y);
     doc.autoTable({
       startY: y,
       head: [['Fecha', 'Descripción', 'Monto']],
       body: l.abonos.map(ab => [fmtDate(ab.fecha), ab.desc, fmt(ab.monto)]),
       theme: 'plain',
-      styles: { fontSize: 8, cellPadding: 2.5, textColor: TEXT, lineColor: BORDER, lineWidth: 0.2 },
-      headStyles: { fillColor: SURF, textColor: MUTED, fontStyle: 'bold', fontSize: 8 },
-      columnStyles: { 2: { halign: 'right', textColor: AMBER } },
-      alternateRowStyles: { fillColor: [18,21,31] },
+      styles: { fontSize: 9, cellPadding: 2, textColor: BLACK, lineColor: LTGRAY, lineWidth: 0.1, font: 'helvetica' },
+      headStyles: { textColor: BLACK, fontStyle: 'bold', fontSize: 9, lineWidth: { bottom: 0.4 }, lineColor: BLACK },
+      columnStyles: { 2: { halign: 'right' } },
       margin: { left: mg, right: mg }
     });
-    y = doc.lastAutoTable.finalY + 8;
+    y = doc.lastAutoTable.finalY + 10;
   }
 
-  // ── Resumen final ──
+  // ── Sección: Calendario de pagos (dibujado, no tabla) ──
+  if (y > 230) { doc.addPage(); y = mg; }
+  y = seccion('Calendario de pagos', y);
+
+  doc.setFontSize(8);
+  safeColor(doc.setTextColor, DARKGRY);
+  safeText('Gris solido = Pago        Tachado = No pago        Blanco claro = Pendiente o fuera de plazo', mg, y);
+  y += 7;
+
+  const diasSemana = ['L','M','M','J','V','S','D'];
+  const cols = 7;
+  const cellSize = (cw) / cols;
+  const cellH = 12;
+
+  const firstDow = new Date(l.fecha + 'T12:00:00').getDay();
+  const offset = firstDow === 0 ? 6 : firstDow - 1;
+  const t = today();
+
+  // Encabezado de días de la semana
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  safeColor(doc.setTextColor, DARKGRY);
+  for (let i = 0; i < cols; i++) {
+    safeText(diasSemana[i], mg + i * cellSize + cellSize/2, y, { align: 'center' });
+  }
+  y += 4;
+
+  let col = offset;
+  let rowY = y;
+
+  const checkPageBreak = (neededH) => {
+    if (rowY + neededH > 280) {
+      doc.addPage();
+      rowY = mg;
+      return true;
+    }
+    return false;
+  };
+
+  checkPageBreak(cellH);
+
+  for (let i = 0; i < l.plazo; i++) {
+    const d = addDays(l.fecha, i);
+    const esElim = i >= c.plazoEfectivo;
+    const esCierrePost = l.cerrado && d > l.fechaCierre;
+    const esFuturo = !esElim && !esCierrePost && d > t;
+    const est = l.dias[d] || 'pendiente';
+
+    const x = mg + col * cellSize;
+
+    // Borde de celda
+    doc.setLineWidth(0.15);
+    safeColor(doc.setDrawColor, LTGRAY);
+    doc.rect(x, rowY, cellSize, cellH);
+
+    // Relleno según estado (solo escala de grises)
+    if (!esElim && !esCierrePost) {
+      if (est === 'pagado') {
+        safeColor(doc.setFillColor, [235, 235, 235]);
+        doc.rect(x, rowY, cellSize, cellH, 'F');
+        doc.setLineWidth(0.3);
+        safeColor(doc.setDrawColor, BLACK);
+        doc.rect(x, rowY, cellSize, cellH);
+      } else if (!esFuturo) {
+        safeColor(doc.setFillColor, [255, 255, 255]);
+        doc.setLineWidth(0.35);
+        safeColor(doc.setDrawColor, BLACK);
+        doc.rect(x, rowY, cellSize, cellH);
+        // Patrón diagonal sutil para "no pagó"
+        doc.setLineWidth(0.2);
+        safeColor(doc.setDrawColor, GRAY);
+        doc.line(x + 1, rowY + 1, x + cellSize - 1, rowY + cellH - 1);
+        doc.line(x + cellSize - 1, rowY + 1, x + 1, rowY + cellH - 1);
+      }
+    } else {
+      safeColor(doc.setFillColor, [248, 248, 248]);
+      doc.rect(x, rowY, cellSize, cellH, 'F');
+    }
+
+    // Número de día
+    doc.setFont('helvetica', (est === 'pagado') ? 'bold' : 'normal');
+    doc.setFontSize(8);
+    safeColor(doc.setTextColor, (esElim || esCierrePost) ? LTGRAY : BLACK);
+    safeText(String(i + 1), x + 2, rowY + 4.5);
+
+    // Monto pequeño
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6);
+    safeColor(doc.setTextColor, (esElim || esCierrePost) ? LTGRAY : GRAY);
+    safeText(fmtShort(c.cuotaDiaria), x + 2, rowY + 9.5);
+
+    col++;
+    if (col >= cols) {
+      col = 0;
+      rowY += cellH;
+      const willOverflow = checkPageBreak(cellH);
+      if (willOverflow) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        safeColor(doc.setTextColor, DARKGRY);
+        for (let k = 0; k < cols; k++) {
+          safeText(diasSemana[k], mg + k * cellSize + cellSize/2, rowY, { align: 'center' });
+        }
+        rowY += 4;
+      }
+    }
+  }
+  if (col !== 0) rowY += cellH;
+  y = rowY + 8;
+
+  // ── Resumen semanal (texto simple, sin colores) ──
   if (y > 250) { doc.addPage(); y = mg; }
-  safeColor(doc.setFillColor, SURF);
-  doc.roundedRect(mg, y, cw, 22, 3, 3, 'F');
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); safeColor(doc.setTextColor, MUTED);
-  safeText('TOTAL COBRADO', mg + 4, y + 8);
-  safeText('SALDO FINAL', mg + cw/2, y + 8);
-  doc.setFontSize(13);
-  safeColor(doc.setTextColor, GREEN);
-  safeText(fmt(c.totalCobrado), mg + 4, y + 17);
-  safeColor(doc.setTextColor, l.cerrado || c.saldo <= 1 ? GREEN : RED);
-  safeText(l.cerrado ? '$0' : fmt(c.saldo), mg + cw/2, y + 17);
+  y = seccion('Resumen por semana', y);
+
+  doc.autoTable({
+    startY: y,
+    head: [['Semana', 'Días', 'Pagados', 'No pagados', 'Pendientes', 'Cobrado / Total']],
+    body: (() => {
+      const semanas = Math.ceil(c.plazoEfectivo / 7);
+      const out = [];
+      for (let s = 0; s < semanas; s++) {
+        const desde = s * 7, hasta = Math.min((s+1)*7, c.plazoEfectivo);
+        let spag = 0, smora = 0, sfut = 0;
+        for (let i = desde; i < hasta; i++) {
+          const d = addDays(l.fecha, i);
+          if (d > t) { sfut++; }
+          else if (l.cerrado && d > l.fechaCierre) { sfut++; }
+          else if ((l.dias[d]||'pendiente') === 'pagado') { spag++; }
+          else { smora++; }
+        }
+        const tot = (hasta - desde) * c.cuotaDiaria;
+        const cobSem = spag * c.cuotaDiaria;
+        out.push([`Semana ${s+1}`, `${desde+1}–${hasta}`, spag, smora, sfut, `${fmt(cobSem)} / ${fmt(tot)}`]);
+      }
+      return out;
+    })(),
+    theme: 'plain',
+    styles: { fontSize: 8.5, cellPadding: 2, textColor: BLACK, lineColor: LTGRAY, lineWidth: 0.1, font: 'helvetica' },
+    headStyles: { textColor: BLACK, fontStyle: 'bold', fontSize: 8.5, lineWidth: { bottom: 0.4 }, lineColor: BLACK },
+    columnStyles: { 1: { halign: 'center' }, 2: { halign: 'center' }, 3: { halign: 'center' }, 4: { halign: 'center' }, 5: { halign: 'right' } },
+    margin: { left: mg, right: mg }
+  });
+  y = doc.lastAutoTable.finalY + 10;
+
+  // ── Totales finales ──
+  if (y > 260) { doc.addPage(); y = mg; }
+  doc.setLineWidth(0.6);
+  safeColor(doc.setDrawColor, BLACK);
+  doc.line(mg, y, W - mg, y);
+  y += 8;
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  safeColor(doc.setTextColor, BLACK);
+  safeText('TOTAL COBRADO', mg, y);
+  safeText(fmt(c.totalCobrado), mg + 60, y);
+
+  safeText('SALDO FINAL', mg + 110, y);
+  safeText(l.cerrado ? fmt(0) : fmt(c.saldo), mg + 160, y);
 
   // ── Pie de página ──
   const pageCount = doc.internal.getNumberOfPages();
   for (let p = 1; p <= pageCount; p++) {
     doc.setPage(p);
-    safeColor(doc.setFillColor, DARK);
-    doc.rect(0, 285, W, 12, 'F');
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); safeColor(doc.setTextColor, MUTED);
-    safeText('PrestApp · Generado con fines de control personal', mg, 291);
-    safeText(`Página ${p} de ${pageCount}`, W - mg, 291, { align: 'right' });
+    doc.setLineWidth(0.2);
+    safeColor(doc.setDrawColor, LTGRAY);
+    doc.line(mg, 283, W - mg, 283);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    safeColor(doc.setTextColor, GRAY);
+    safeText('Documento generado con fines de control personal · PrestApp', mg, 288);
+    safeText(`Página ${p} de ${pageCount}`, W - mg, 288, { align: 'right' });
   }
 
-  const nombreArchivo = `prestamo_${l.nombre.replace(/\s+/g,'_')}_${today()}.pdf`;
+  const nombreArchivo = `estado_cuenta_${l.nombre.replace(/\s+/g,'_')}_${today()}.pdf`;
   doc.save(nombreArchivo);
 
   if (btn) { btn.disabled = false; btn.innerHTML = '📄 PDF'; }
@@ -1478,7 +1608,6 @@ function generarPDF(loanId) {
     alert('No se pudo generar el PDF.\n\nDetalle: ' + err.message + '\n\nSi el problema persiste, recarga la página e intenta de nuevo.');
   }
 }
-
 // ═══════════════════════════════════════════════════
 // NAVEGACIÓN
 // ═══════════════════════════════════════════════════
