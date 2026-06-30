@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PrestApp — Control de préstamos</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script type="module">
+// ══════════════════════════════════════════════
+// FIREBASE CONFIG — Pega aquí tus credenciales
+// ══════════════════════════════════════════════
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, enableIndexedDbPersistence }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBRCNk0xeC_neCG-OKC3BhRfrZnlXSP6mU",
+  authDomain: "prestapp-4e841.firebaseapp.com",
+  projectId: "prestapp-4e841",
+  storageBucket: "prestapp-4e841.firebasestorage.app",
+  messagingSenderId: "527169729082",
+  appId: "1:527169729082:web:b8c2a01b1d350a93e2fb03",
+  measurementId: "G-42PKDTMC8T"
+};
+
+const app = initializeApp(firebaseConfig);
+const db  = getFirestore(app);
+
+// Persistencia offline (funciona sin internet y sincroniza al reconectar)
+try { await enableIndexedDbPersistence(db); } catch(e) {}
+
+const COLECCION = "prestamos";
+
+// ── Escuchar cambios en tiempo real ──────────────────
+const unsub = onSnapshot(collection(db, COLECCION), (snapshot) => {
+  window._DB = [];
+  snapshot.forEach(d => window._DB.push({ id: d.id, ...d.data() }));
+  window._DB.sort((a,b) => a.fecha.localeCompare(b.fecha));
+  window._dbReady = true;
+  window._renderAll && window._renderAll();
+}, (err) => {
+  console.warn('Firebase error, usando localStorage:', err);
+  window._useLocal = true;
+  window._dbReady = true;
+  window._renderAll && window._renderAll();
+});
+
+// ── Guardar préstamo ─────────────────────────────────
+window._saveDoc = async (loan) => {
+  try {
+    await setDoc(doc(db, COLECCION, loan.id), loan);
+  } catch(e) {
+    console.warn('Error guardando en Firebase:', e);
+    window._useLocal = true;
+  }
+};
+
+// ── Eliminar préstamo ────────────────────────────────
+window._deleteDoc = async (id) => {
+  try {
+    await deleteDoc(doc(db, COLECCION, id));
+  } catch(e) {
+    console.warn('Error eliminando en Firebase:', e);
+  }
+};
+
+window._firebaseReady = true;
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+  :root {
+    --bg:       #0F1117;
+    --surf:     #1A1D27;
+    --surf2:    #21253300;
+    --border:   #2A2D3A;
+    --border2:  #3A3D4A;
+    --green:    #22C55E;
+    --green-bg: #0D2818;
+    --green-b:  #1A4A2A;
+    --red:      #EF4444;
+    --red-bg:   #2A0F0F;
+    --red-b:    #4A1A1A;
+    --amber:    #F59E0B;
+    --amber-bg: #291F00;
+    --amber-b:  #4A3800;
+    --blue:     #3B82F6;
+    --blue-bg:  #0F1E3A;
+    --blue-b:   #1A3060;
+    --text:     #E8EAF0;
+    --muted:    #6B7280;
+    --muted2:   #9CA3AF;
+    --radius:   8px;
+    --radius-lg:12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* ── Layout ── */
+  .app-header {
+    background: var(--surf);
+    border-bottom: 1px solid var(--border);
+    padding: 0 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .app-logo {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--green);
+    letter-spacing: -0.5px;
+  }
+  .app-logo span { color: var(--muted); }
+  .main { max-width: 860px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
+
+  /* ── Botones ── */
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 16px; border-radius: var(--radius);
+    border: 1px solid var(--border2); cursor: pointer;
+    font-size: 13px; font-family: 'Inter', sans-serif;
+    font-weight: 500; background: var(--surf); color: var(--text);
+    transition: background .15s, border-color .15s, opacity .15s;
+    text-decoration: none; white-space: nowrap;
+  }
+  .btn:hover { background: var(--border); }
+  .btn-primary { background: var(--green); color: #000; border-color: var(--green); }
+  .btn-primary:hover { opacity: .88; background: var(--green); }
+  .btn-success { background: var(--green-bg); color: var(--green); border-color: var(--green-b); }
+  .btn-success:hover { background: var(--green-b); }
+  .btn-amber  { background: var(--amber-bg); color: var(--amber); border-color: var(--amber-b); }
+  .btn-amber:hover { background: var(--amber-b); }
+  .btn-danger { background: var(--red-bg); color: var(--red); border-color: var(--red-b); }
+  .btn-danger:hover { background: var(--red-b); }
+  .btn-ghost  { background: transparent; border-color: transparent; color: var(--muted2); }
+  .btn-ghost:hover { color: var(--text); background: var(--surf); }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  .btn-icon { padding: 6px; min-width: 32px; justify-content: center; }
+  .btn:disabled { opacity: .4; pointer-events: none; }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex; gap: 2px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1.5rem;
+  }
+  .tab {
+    padding: 10px 16px; font-size: 13px; font-weight: 500;
+    cursor: pointer; border: none; background: none; color: var(--muted);
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+    font-family: 'Inter', sans-serif; transition: color .15s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--green); border-bottom-color: var(--green); }
+  .sec { display: none; }
+  .sec.on { display: block; }
+
+  /* ── Cards & Grid ── */
+  .card {
+    background: var(--surf); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 1.25rem;
+    margin-bottom: 1rem;
+  }
+  .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .g3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .g4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+
+  /* ── Métricas ── */
+  .metric {
+    background: var(--surf); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 1rem 1.125rem;
+  }
+  .metric-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--muted); margin-bottom: 6px;
+  }
+  .metric-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 22px; font-weight: 600; color: var(--text);
+  }
+  .metric-val.green { color: var(--green); }
+  .metric-val.amber { color: var(--amber); }
+  .metric-val.red   { color: var(--red); }
+
+  /* ── Alertas mora ── */
+  .mora-banner {
+    background: var(--red-bg); border: 1px solid var(--red-b);
+    border-radius: var(--radius-lg); padding: 1rem 1.25rem;
+    margin-bottom: 1.25rem;
+  }
+  .mora-banner-title {
+    font-size: 13px; font-weight: 600; color: var(--red);
+    display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
+  }
+  .pulse {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--red);
+    animation: pulse 1.4s ease infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 rgba(239,68,68,.4); }
+    50%       { opacity: .7; transform: scale(1.2); box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+  }
+  .mora-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0; border-top: 1px solid var(--red-b); gap: 8px;
+  }
+  .mora-item-left .nombre { font-weight: 500; color: var(--red); font-size: 14px; }
+  .mora-item-left .detalle { font-size: 12px; color: var(--red); opacity: .75; margin-top: 2px; }
+
+  /* ── Lista clientes ── */
+  .loan-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 0; border-bottom: 1px solid var(--border); gap: 10px;
+  }
+  .loan-item:last-child { border-bottom: none; }
+  .loan-nombre { font-size: 15px; font-weight: 500; color: var(--text); }
+  .loan-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+  .loan-monto { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--green); }
+  .progress { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; margin-top: 8px; max-width: 200px; }
+  .progress-fill { height: 100%; background: var(--green); border-radius: 2px; transition: width .3s; }
+  .fg { display: flex; gap: 6px; flex-wrap: wrap; }
+  .fgrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  /* ── Badges ── */
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500;
+  }
+  .badge-green  { background: var(--green-bg);  color: var(--green); border: 1px solid var(--green-b); }
+  .badge-red    { background: var(--red-bg);    color: var(--red);   border: 1px solid var(--red-b); }
+  .badge-amber  { background: var(--amber-bg);  color: var(--amber); border: 1px solid var(--amber-b); }
+  .badge-blue   { background: var(--blue-bg);   color: var(--blue);  border: 1px solid var(--blue-b); }
+  .badge-gray   { background: var(--surf);      color: var(--muted); border: 1px solid var(--border2); }
+
+  /* ── Formularios ── */
+  .fgroup { margin-bottom: 14px; }
+  .fgroup label { font-size: 12px; color: var(--muted2); display: block; margin-bottom: 5px; }
+  input, select {
+    width: 100%; background: var(--bg); border: 1px solid var(--border2);
+    border-radius: var(--radius); padding: 9px 12px; color: var(--text);
+    font-size: 14px; font-family: 'Inter', sans-serif;
+    transition: border-color .15s;
+    outline: none;
+  }
+  input:focus, select:focus { border-color: var(--green); }
+  input::placeholder { color: var(--muted); }
+  select option { background: var(--surf); }
+
+  /* ── Preview box ── */
+  .preview-box {
+    background: var(--blue-bg); border: 1px solid var(--blue-b);
+    border-radius: var(--radius); padding: 12px 14px; margin: 12px 0;
+    font-size: 13px; color: var(--blue);
+  }
+  .preview-box .cuota {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 20px; font-weight: 600; color: var(--green); margin-bottom: 6px;
+  }
+  .preview-row { display: flex; gap: 20px; flex-wrap: wrap; }
+  .preview-row span { color: var(--muted2); }
+  .preview-row strong { color: var(--text); font-family: 'JetBrains Mono', monospace; }
+
+  /* ── Calendario ── */
+  .cal-wrap { overflow-x: auto; }
+  .cal-grid { display: grid; gap: 4px; }
+  .cal-hdr { text-align: center; font-size: 10px; color: var(--muted); padding: 3px 0; font-weight: 600; letter-spacing: .04em; }
+  .cal-day {
+    border: 1px solid var(--border2); border-radius: 6px;
+    padding: 7px 3px; text-align: center; cursor: pointer;
+    user-select: none; transition: transform .1s, border-color .15s;
+    min-height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  .cal-day:hover:not(.future):not(.removed) { border-color: var(--green); transform: scale(1.04); }
+  .cal-day .d-num { font-size: 12px; font-weight: 600; color: var(--muted2); line-height: 1; }
+  .cal-day .d-amt { font-size: 9px; color: var(--muted); margin-top: 3px; font-family: 'JetBrains Mono', monospace; }
+  .cal-day .d-ico { font-size: 11px; }
+  .cal-day.paid  { background: var(--green-bg); border-color: var(--green-b); }
+  .cal-day.paid .d-num { color: var(--green); }
+  .cal-day.paid .d-amt { color: var(--green); opacity: .7; }
+  .cal-day.missed{ background: var(--red-bg);   border-color: var(--red-b); }
+  .cal-day.missed .d-num { color: var(--red); }
+  .cal-day.missed .d-amt { color: var(--red); opacity: .7; }
+  .cal-day.future{ opacity: .3; cursor: default; }
+  .cal-day.removed{ opacity: .18; cursor: default; text-decoration: line-through; }
+  .cal-day.today-m{ border-color: var(--blue) !important; border-width: 2px; }
+
+  /* ── Boxes abono/cierre ── */
+  .abono-box {
+    background: var(--amber-bg); border: 1px solid var(--amber-b);
+    border-radius: var(--radius-lg); padding: 1rem 1.25rem; margin-bottom: 1rem;
+  }
+  .abono-title { font-size: 13px; font-weight: 600; color: var(--amber); margin-bottom: 8px; }
+  .cierre-box {
+    background: var(--green-bg); border: 1px solid var(--green-b);
+    border-radius: var(--radius-lg); padding: 1rem 1.25rem; margin-bottom: 1rem;
+  }
+  .cierre-title { font-size: 13px; font-weight: 600; color: var(--green); margin-bottom: 8px; }
+  .info-row {
+    display: flex; justify-content: space-between;
+    padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+  }
+  .info-row:last-child { border-bottom: none; }
+  .info-row .lbl { color: var(--muted); }
+  .info-row .val { font-family: 'JetBrains Mono', monospace; font-weight: 500; }
+  .info-row .val.green { color: var(--green); }
+  .info-row .val.big   { font-size: 17px; color: var(--green); }
+
+  /* ── Historial abonos ── */
+  .ab-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+  }
+  .ab-row:last-child { border-bottom: none; }
+  .ab-monto { font-family: 'JetBrains Mono', monospace; color: var(--amber); font-weight: 600; }
+  .ab-desc  { color: var(--muted); font-size: 12px; margin-top: 1px; }
+
+  /* ── Semanas ── */
+  .sem-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+  }
+  .sem-row:last-child { border-bottom: none; }
+
+  /* ── Legend ── */
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+  .leg-dot { width: 10px; height: 10px; border-radius: 3px; }
+
+  /* ── Section title ── */
+  .sec-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 12px; }
+
+  /* ── Back button ── */
+  .back-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: none; border: none; color: var(--blue); cursor: pointer;
+    font-size: 13px; font-family: 'Inter', sans-serif; padding: 0;
+    margin-bottom: 14px;
+  }
+  .back-btn:hover { color: var(--text); }
+
+  /* ── Empty state ── */
+  .empty {
+    text-align: center; padding: 3rem 1rem; color: var(--muted);
+  }
+  .empty-icon { font-size: 36px; margin-bottom: 10px; }
+  .empty-txt  { font-size: 14px; line-height: 1.6; }
+
+  /* ── PDF btn loading ── */
+  .spin { animation: spin .8s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Divider ── */
+  .divider { height: 1px; background: var(--border); margin: 1rem 0; }
+
+  /* ── Responsive ── */
+  @media (max-width: 600px) {
+    .g4 { grid-template-columns: 1fr 1fr; }
+    .g3 { grid-template-columns: 1fr 1fr; }
+    .g2 { grid-template-columns: 1fr; }
+    .app-header { padding: 0 1rem; }
+    .main { padding: 1rem .75rem 4rem; }
+    .metric-val { font-size: 18px; }
+    .loan-item { flex-direction: column; align-items: flex-start; }
+  }
+  @media (max-width: 420px) {
+    .g4 { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .tab { padding: 10px 10px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="app-logo">Prest<span>App</span></div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <span id="sync-status" style="font-size:11px;color:var(--muted)">Conectando...</span>
+    <span style="font-size:12px;color:var(--muted)">10% mensual · pago diario</span>
+  </div>
+</header>
+
+<main class="main">
+
+  <!-- Alertas mora -->
+  <div id="mora-banner" style="display:none"></div>
+
+  <!-- Métricas -->
+  <div class="g4" style="margin-bottom:1.25rem">
+    <div class="metric">
+      <div class="metric-label">Capital prestado</div>
+      <div class="metric-val mono" id="m-cap">$0</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Por cobrar hoy</div>
+      <div class="metric-val amber" id="m-hoy">$0</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Total cobrado</div>
+      <div class="metric-val green" id="m-cob">$0</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">En mora +2 días</div>
+      <div class="metric-val red" id="m-mora">0</div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="goTab('list')">Clientes</button>
+    <button class="tab" onclick="goTab('nuevo')">+ Nuevo préstamo</button>
+    <button class="tab" id="tab-cal" style="display:none" onclick="goTab('cal')">📅 Calendario</button>
+  </div>
+
+  <!-- Lista -->
+  <div class="sec on" id="sec-list">
+    <div id="loan-list"></div>
+  </div>
+
+  <!-- Nuevo -->
+  <div class="sec" id="sec-nuevo">
+    <div class="card">
+      <div class="sec-title">Registrar nuevo préstamo</div>
+      <div class="g2">
+        <div class="fgroup">
+          <label>Nombre del deudor</label>
+          <input type="text" id="n-nom" placeholder="Ej: Carlos Pérez">
+        </div>
+        <div class="fgroup">
+          <label>Monto prestado ($)</label>
+          <input type="number" id="n-monto" placeholder="500000" min="1" oninput="previewCalc()">
+        </div>
+        <div class="fgroup">
+          <label>Tasa de interés mensual (%)</label>
+          <input type="number" id="n-tasa" placeholder="10" min="0.1" max="100" step="0.5" value="10" oninput="previewCalc()">
+        </div>
+        <div class="fgroup">
+          <label>Fecha de inicio</label>
+          <input type="date" id="n-fecha">
+        </div>
+        <div class="fgroup">
+          <label>Plazo total (días)</label>
+          <input type="number" id="n-plazo" value="30" min="1" oninput="previewCalc()">
+        </div>
+      </div>
+      <div id="n-preview" style="display:none" class="preview-box">
+        <div class="cuota" id="pv-cuota">—</div>
+        <div class="preview-row">
+          <span>Capital: <strong id="pv-cap">—</strong></span>
+          <span>Interés: <strong id="pv-int">—</strong></span>
+          <span>Total: <strong id="pv-tot">—</strong></span>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="crearPrestamo()">✓ Crear préstamo</button>
+    </div>
+  </div>
+
+  <!-- Calendario -->
+  <div class="sec" id="sec-cal">
+    <button class="back-btn" onclick="goTab('list')">← Volver a clientes</button>
+    <div id="cal-content"></div>
+  </div>
+
+</main>
+
+<script>
+// ═══════════════════════════════════════════════════
+// DATOS Y PERSISTENCIA (Firebase + localStorage fallback)
+// ═══════════════════════════════════════════════════
+window._DB       = JSON.parse(localStorage.getItem('prestapp_v1') || '[]');
+window._dbReady  = false;
+window._useLocal = false;
+let activeId     = null;
+
+// Proxy: DB siempre apunta al array correcto
+Object.defineProperty(window, 'DB', {
+  get: () => window._DB,
+  set: (v) => { window._DB = v; }
+});
+
+// renderAll: re-renderiza la UI cuando llegan datos de Firebase
+window._renderAll = () => {
+  // sincronizar también a localStorage como backup
+  try { localStorage.setItem('prestapp_v1', JSON.stringify(window._DB)); } catch(e) {}
+  updateMetrics();
+  renderList();
+  if (activeId) renderCal();
+};
+
+function save(loan) {
+  // Guardar en localStorage siempre (offline backup)
+  try { localStorage.setItem('prestapp_v1', JSON.stringify(DB)); } catch(e) {}
+  // Guardar en Firebase si está disponible
+  if (window._saveDoc && !window._useLocal && loan) {
+    window._saveDoc(loan);
+  }
+}
+
+function deleteFromDB(id) {
+  DB = DB.filter(l => l.id !== id);
+  try { localStorage.setItem('prestapp_v1', JSON.stringify(DB)); } catch(e) {}
+  if (window._deleteDoc && !window._useLocal) {
+    window._deleteDoc(id);
+  }
+}
+
+// Estado de conexión
+function getSyncStatus() {
+  if (window._useLocal)    return { txt: 'Sin conexión a nube · Solo local', color: 'var(--amber)' };
+  if (!window._dbReady)    return { txt: 'Conectando...', color: 'var(--muted)' };
+  return { txt: '✓ Sincronizado', color: 'var(--green)' };
+}
+
+// ═══════════════════════════════════════════════════
+// UTILIDADES
+// ═══════════════════════════════════════════════════
+function fmt(n) {
+  return '$' + Math.round(n).toLocaleString('es-CO');
+}
+function fmtShort(n) {
+  const a = Math.abs(n);
+  if (a >= 1000000) return '$' + (n/1e6).toFixed(1) + 'M';
+  if (a >= 1000)    return '$' + (n/1000).toFixed(0) + 'K';
+  return '$' + Math.round(n).toLocaleString('es-CO');
+}
+function today() {
+  return new Date().toISOString().split('T')[0];
+}
+function addDays(d, n) {
+  const dt = new Date(d + 'T12:00:00');
+  dt.setDate(dt.getDate() + n);
+  return dt.toISOString().split('T')[0];
+}
+function daysBetween(a, b) {
+  return Math.round((new Date(b+'T12:00:00') - new Date(a+'T12:00:00')) / 86400000);
+}
+function fmtDate(d) {
+  return new Date(d+'T12:00:00').toLocaleDateString('es-CO', {day:'2-digit',month:'short',year:'numeric'});
+}
+function fmtShortDate(d) {
+  return new Date(d+'T12:00:00').toLocaleDateString('es-CO', {day:'2-digit',month:'short'});
+}
+
+// ═══════════════════════════════════════════════════
+// CÁLCULO DEL PRÉSTAMO
+// ═══════════════════════════════════════════════════
+function calcLoan(l) {
+  const t = today();
+  const plazoEfectivo = l.plazo - (l.diasEliminados || 0);
+  const meses = Math.ceil(plazoEfectivo / 30);
+  const tasa = (l.tasa || 10) / 100;
+  const totalDeuda = l.monto + l.monto * tasa * meses;
+  const cuotaDiaria = totalDeuda / plazoEfectivo;
+  const fechaFin = addDays(l.fecha, plazoEfectivo - 1);
+
+  let totalPagadoDiario = 0, diasPagados = 0, diasMora = 0, rachaActual = 0;
+  for (let i = 0; i < plazoEfectivo; i++) {
+    const d = addDays(l.fecha, i);
+    if (d > t) break;
+    if (l.cerrado && d > l.fechaCierre) break;
+    const est = l.dias[d] || 'pendiente';
+    if (est === 'pagado') {
+      totalPagadoDiario += cuotaDiaria;
+      diasPagados++;
+      rachaActual = 0;
+    } else {
+      diasMora++;
+      rachaActual++;
+    }
+  }
+
+  const totalAbonos = (l.abonos || []).reduce((a, b) => a + b.monto, 0);
+  const totalCobrado = totalPagadoDiario + totalAbonos + (l.pagoCierre || 0);
+  const saldo = l.cerrado ? 0 : Math.max(0, totalDeuda - totalCobrado);
+  const pct = Math.min(100, totalCobrado / totalDeuda * 100);
+
+  const diasPasados = l.cerrado
+    ? daysBetween(l.fecha, l.fechaCierre) + 1
+    : Math.min(plazoEfectivo, Math.max(0, daysBetween(l.fecha, t) + 1));
+
+  // Cierre anticipado con interés sobre días reales
+  const diasReales = Math.max(1, Math.min(plazoEfectivo, daysBetween(l.fecha, t) + 1));
+  const intReal = l.monto * tasa * (diasReales / 30);
+  const totalCierreAnticipado = l.monto + intReal;
+  const ahorroInteres = totalDeuda - totalCierreAnticipado;
+
+  return {
+    plazoEfectivo, meses, totalDeuda, cuotaDiaria, fechaFin,
+    totalPagadoDiario, totalAbonos, totalCobrado,
+    diasPagados, diasMora, rachaActual, saldo, pct, diasPasados,
+    diasReales, intReal, totalCierreAnticipado, ahorroInteres
+  };
+}
+
+// ═══════════════════════════════════════════════════
+// MÉTRICAS GLOBALES Y ALERTAS
+// ═══════════════════════════════════════════════════
+function updateMetrics() {
+  let cap = 0, hoy = 0, cob = 0, enMora = 0;
+  const t = today();
+
+  DB.forEach(l => {
+    const c = calcLoan(l);
+    cap += l.monto;
+    cob += c.totalCobrado;
+    if (!l.cerrado && c.rachaActual > 2) enMora++;
+    const fin = addDays(l.fecha, c.plazoEfectivo - 1);
+    if (!l.cerrado && t >= l.fecha && t <= fin) {
+      if ((l.dias[t] || 'pendiente') !== 'pagado') hoy += c.cuotaDiaria;
+    }
+  });
+
+  document.getElementById('m-cap').textContent  = fmt(cap);
+  document.getElementById('m-hoy').textContent  = fmt(hoy);
+  document.getElementById('m-cob').textContent  = fmt(cob);
+  document.getElementById('m-mora').textContent = enMora;
+
+  renderMoraAlerts();
+}
+
+function renderMoraAlerts() {
+  const alertados = DB.filter(l => !l.cerrado && calcLoan(l).rachaActual > 2);
+  const el = document.getElementById('mora-banner');
+  if (!alertados.length) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = `
+    <div class="mora-banner">
+      <div class="mora-banner-title">
+        <div class="pulse"></div>
+        ${alertados.length} cliente${alertados.length > 1 ? 's' : ''} con más de 2 días consecutivos sin pagar
+      </div>
+      ${alertados.map(l => {
+        const c = calcLoan(l);
+        return `<div class="mora-item">
+          <div class="mora-item-left">
+            <div class="nombre">${l.nombre}</div>
+            <div class="detalle">${c.rachaActual} días sin pagar · Mora: ${fmt(c.rachaActual * c.cuotaDiaria)}</div>
+          </div>
+          <button class="btn btn-danger btn-sm" onclick="verCal('${l.id}')">Ver calendario</button>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+// ═══════════════════════════════════════════════════
+// LISTA DE CLIENTES
+// ═══════════════════════════════════════════════════
+function renderList() {
+  const el = document.getElementById('loan-list');
+  if (!DB.length) {
+    el.innerHTML = `<div class="empty">
+      <div class="empty-icon">💳</div>
+      <div class="empty-txt">No hay préstamos registrados.<br>Crea uno en <strong>+ Nuevo préstamo</strong>.</div>
+    </div>`;
+    return;
+  }
+
+  const t = today();
+  el.innerHTML = `<div class="card" style="padding: 0 1.25rem;">` +
+    DB.map(l => {
+      const c = calcLoan(l);
+      const fin = addDays(l.fecha, c.plazoEfectivo - 1);
+      const activo  = !l.cerrado && t >= l.fecha && t <= fin;
+      const vencido = !l.cerrado && t > fin;
+      const status  = l.cerrado ? '<span class="badge badge-gray">Cerrado</span>'
+                    : activo    ? '<span class="badge badge-blue">Activo</span>'
+                    : vencido   ? '<span class="badge badge-red">Vencido</span>'
+                    :             '<span class="badge badge-gray">Por iniciar</span>';
+      const moraB = !l.cerrado && c.rachaActual > 2
+        ? `<span class="badge badge-red">⚠ ${c.rachaActual} días mora</span>`
+        : !l.cerrado && c.diasMora > 0
+        ? `<span class="badge badge-amber">${c.diasMora} mora</span>` : '';
+
+      return `<div class="loan-item">
+        <div style="flex:1;min-width:0">
+          <div class="fgrow" style="margin-bottom:3px;gap:6px">
+            <span class="loan-nombre">${l.nombre}</span>
+            ${status} ${moraB}
+          </div>
+          <div class="loan-sub">
+            ${fmt(l.monto)} · <span class="badge badge-blue" style="font-size:11px">${l.tasa||10}%/mes</span> · Cuota: <span class="loan-monto">${fmt(c.cuotaDiaria)}/día</span>
+            · ${c.diasPagados}/${c.plazoEfectivo} días · ${fmt(c.totalCobrado)} cobrado
+          </div>
+          <div class="progress" style="max-width:160px">
+            <div class="progress-fill" style="width:${c.pct.toFixed(1)}%"></div>
+          </div>
+        </div>
+        <div class="fg">
+          <button class="btn btn-sm" onclick="verCal('${l.id}')">📅 Calendario</button>
+          <button class="btn btn-sm btn-ghost btn-icon" onclick="eliminarLoan('${l.id}')" title="Eliminar">✕</button>
+        </div>
+      </div>`;
+    }).join('') + `</div>`;
+}
+
+// ═══════════════════════════════════════════════════
+// NUEVO PRÉSTAMO
+// ═══════════════════════════════════════════════════
+function previewCalc() {
+  const m = parseFloat(document.getElementById('n-monto').value) || 0;
+  const p = parseInt(document.getElementById('n-plazo').value) || 30;
+  const tasa = parseFloat(document.getElementById('n-tasa').value) || 10;
+  const box = document.getElementById('n-preview');
+  if (!m) { box.style.display = 'none'; return; }
+  const meses = Math.ceil(p / 30);
+  const intTotal = m * (tasa/100) * meses;
+  const total = m + intTotal;
+  const cuota = total / p;
+  box.style.display = 'block';
+  document.getElementById('pv-cuota').textContent = fmt(cuota) + '/día';
+  document.getElementById('pv-cap').textContent  = fmt(m);
+  document.getElementById('pv-int').textContent  = fmt(intTotal) + ` (${tasa}%/mes × ${meses} mes${meses>1?'es':''})`;
+  document.getElementById('pv-tot').textContent  = fmt(total);
+}
+
+function crearPrestamo() {
+  const nom   = document.getElementById('n-nom').value.trim();
+  const monto = parseFloat(document.getElementById('n-monto').value);
+  const tasa  = parseFloat(document.getElementById('n-tasa').value) || 10;
+  const fecha = document.getElementById('n-fecha').value;
+  const plazo = parseInt(document.getElementById('n-plazo').value) || 30;
+  if (!nom || !monto || !fecha) { alert('Completa todos los campos.'); return; }
+  const newLoan = {
+    id: Date.now().toString(), nombre: nom, monto, tasa, fecha, plazo,
+    dias: {}, abonos: [], diasEliminados: 0,
+    cerrado: false, fechaCierre: null, pagoCierre: 0
+  };
+  DB.push(newLoan);
+  save(newLoan); renderList(); updateMetrics();
+  document.getElementById('n-nom').value = '';
+  document.getElementById('n-monto').value = '';
+  document.getElementById('n-tasa').value = '10';
+  document.getElementById('n-plazo').value = '30';
+  document.getElementById('n-preview').style.display = 'none';
+  goTab('list');
+}
+
+function eliminarLoan(id) {
+  if (!confirm('¿Eliminar este préstamo y todos sus datos?')) return;
+  deleteFromDB(id);
+  renderList(); updateMetrics();
+}
+
+// ═══════════════════════════════════════════════════
+// CALENDARIO
+// ═══════════════════════════════════════════════════
+function verCal(id) {
+  activeId = id;
+  document.getElementById('tab-cal').style.display = '';
+  renderCal(); goTab('cal');
+}
+
+function toggleDia(loanId, fecha) {
+  const l = DB.find(x => x.id === loanId);
+  if (!l || l.cerrado || fecha > today()) return;
+  l.dias[fecha] = (l.dias[fecha] || 'pendiente') === 'pagado' ? 'no_pago' : 'pagado';
+  save(l); renderCal(); updateMetrics(); renderList();
+}
+
+function registrarAbono() {
+  const l = DB.find(x => x.id === activeId);
+  if (!l || l.cerrado) return;
+  const monto = parseFloat(document.getElementById('ab-monto').value);
+  if (!monto || monto <= 0) { alert('Ingresa un monto válido.'); return; }
+  const c = calcLoan(l);
+  const diasAEliminar = Math.floor(monto / c.cuotaDiaria);
+  if (diasAEliminar < 1) { alert('El abono es menor que una cuota diaria (' + fmt(c.cuotaDiaria) + ').'); return; }
+  const disponibles = c.plazoEfectivo - c.diasPasados - 1;
+  if (disponibles < 1) { alert('No quedan días por adelantar. Considera cerrar el crédito.'); return; }
+  const diasEfect = Math.min(diasAEliminar, disponibles);
+  const montoAplicado = diasEfect * c.cuotaDiaria;
+  l.abonos.push({
+    id: Date.now().toString(), monto: montoAplicado, fecha: today(),
+    desc: `Abono — elimina ${diasEfect} día(s) del plazo`, diasEliminados: diasEfect
+  });
+  l.diasEliminados = (l.diasEliminados || 0) + diasEfect;
+  document.getElementById('ab-monto').value = '';
+  save(l); renderCal(); updateMetrics(); renderList();
+}
+
+function cerrarCredito() {
+  const l = DB.find(x => x.id === activeId);
+  if (!l || l.cerrado) return;
+  const c = calcLoan(l);
+  const pagoFinal = Math.max(0, c.totalCierreAnticipado - c.totalCobrado);
+  const msg = `Cierre anticipado — ${l.nombre}\n\n` +
+    `Días transcurridos: ${c.diasReales}\n` +
+    `Interés real (${l.tasa||10}%/mes): ${fmt(c.intReal)}\n` +
+    `Total real a pagar: ${fmt(c.totalCierreAnticipado)}\n` +
+    `Ya pagado: ${fmt(c.totalCobrado)}\n` +
+    `Pago final del cliente: ${fmt(pagoFinal)}\n` +
+    `Ahorro vs plazo completo: ${fmt(c.ahorroInteres)}\n\n` +
+    `¿Confirmar cierre?`;
+  if (!confirm(msg)) return;
+  l.cerrado = true; l.fechaCierre = today(); l.pagoCierre = pagoFinal;
+  if (pagoFinal > 0) {
+    l.abonos.push({
+      id: Date.now().toString(), monto: pagoFinal, fecha: today(),
+      desc: 'Pago final — cierre anticipado', diasEliminados: 0
+    });
+  }
+  save(l); renderCal(); updateMetrics(); renderList();
+}
+
+function eliminarAbono(loanId, abonoId) {
+  const l = DB.find(x => x.id === loanId);
+  if (!l) return;
+  const ab = l.abonos.find(a => a.id === abonoId);
+  if (!ab || !confirm('¿Deshacer este abono?')) return;
+  l.diasEliminados = Math.max(0, (l.diasEliminados || 0) - (ab.diasEliminados || 0));
+  l.abonos = l.abonos.filter(a => a.id !== abonoId);
+  if (l.cerrado && ab.desc.includes('cierre')) {
+    l.cerrado = false; l.fechaCierre = null; l.pagoCierre = 0;
+  }
+  save(l); renderCal(); updateMetrics(); renderList();
+}
+
+function renderCal() {
+  const l = DB.find(x => x.id === activeId);
+  if (!l) return;
+  const c = calcLoan(l);
+  const t = today();
+  const COLS = 7;
+  let html = '';
+
+  // Cabecera del cliente
+  html += `<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1rem;gap:10px;flex-wrap:wrap">
+    <div>
+      <h2 style="font-size:17px;font-weight:600;color:var(--text);margin-bottom:4px">
+        ${l.nombre}
+        ${l.cerrado ? `<span class="badge badge-gray" style="margin-left:6px;font-size:11px">Cerrado ${fmtShortDate(l.fechaCierre)}</span>` : ''}
+      </h2>
+      <div style="font-size:12px;color:var(--muted)">${fmtDate(l.fecha)} → ${fmtDate(c.fechaFin)} · ${c.plazoEfectivo} días efectivos · <span style="color:var(--amber)">${l.tasa||10}% mensual</span></div>
+    </div>
+    <button class="btn btn-sm" id="pdf-btn" onclick="generarPDF('${l.id}')">📄 Descargar PDF</button>
+  </div>`;
+
+  // Alerta mora en calendario
+  if (!l.cerrado && c.rachaActual > 2) {
+    html += `<div style="background:var(--red-bg);border:1px solid var(--red-b);border-radius:var(--radius);padding:10px 14px;margin-bottom:1rem;display:flex;align-items:center;gap:8px">
+      <div class="pulse"></div>
+      <div style="font-size:13px;color:var(--red);font-weight:500">${c.rachaActual} días consecutivos sin pagar · Mora acumulada: ${fmt(c.rachaActual * c.cuotaDiaria)}</div>
+    </div>`;
+  }
+
+  // Métricas del cliente
+  html += `<div class="g3" style="margin-bottom:1rem">
+    <div class="metric"><div class="metric-label">Cuota diaria</div><div class="metric-val">${fmt(c.cuotaDiaria)}</div></div>
+    <div class="metric"><div class="metric-label">Total a devolver</div><div class="metric-val amber">${fmt(c.totalDeuda)}</div></div>
+    <div class="metric"><div class="metric-label">Total cobrado</div><div class="metric-val green">${fmt(c.totalCobrado)}</div></div>
+    <div class="metric"><div class="metric-label">Saldo pendiente</div><div class="metric-val ${c.saldo<=1?'green':'red'}">${l.cerrado?'$0':fmt(c.saldo)}</div></div>
+    <div class="metric"><div class="metric-label">Días pagados</div><div class="metric-val">${c.diasPagados}<span style="font-size:13px;color:var(--muted)"> / ${c.plazoEfectivo}</span></div></div>
+    <div class="metric"><div class="metric-label">Mora consecutiva</div><div class="metric-val ${c.rachaActual>2&&!l.cerrado?'red':c.diasMora>0&&!l.cerrado?'amber':'green'}">${l.cerrado?'—':c.rachaActual+' días'}</div></div>
+  </div>`;
+
+  // Panel abono parcial
+  if (!l.cerrado) {
+    html += `<div class="abono-box">
+      <div class="abono-title">💰 Abono parcial — reduce días del plazo</div>
+      <div style="font-size:12px;color:var(--amber);margin-bottom:10px">
+        Cada cuota abonada (<strong>${fmt(c.cuotaDiaria)}</strong>) elimina un día del final del préstamo.
+      </div>
+      <div class="fg" style="align-items:flex-end;gap:8px">
+        <div style="flex:1;min-width:120px">
+          <input type="number" id="ab-monto" placeholder="Monto a abonar" min="0"
+            oninput="previewAbono()" style="background:var(--amber-bg);border-color:var(--amber-b);color:var(--amber)">
+        </div>
+        <button class="btn btn-amber" onclick="registrarAbono()">Aplicar abono</button>
+      </div>
+      <div id="ab-preview" style="font-size:12px;color:var(--amber);opacity:.8;margin-top:6px"></div>
+    </div>`;
+
+    const pagoFinal = Math.max(0, c.totalCierreAnticipado - c.totalCobrado);
+    html += `<div class="cierre-box">
+      <div class="cierre-title">🔒 Cierre anticipado hoy · Interés sobre días reales</div>
+      <div class="info-row"><span class="lbl">Días transcurridos</span><span class="val">${c.diasReales} días</span></div>
+      <div class="info-row"><span class="lbl">Interés real (${l.tasa||10}% × ${c.diasReales}/30 días)</span><span class="val">${fmt(c.intReal)}</span></div>
+      <div class="info-row"><span class="lbl">Total real a pagar</span><span class="val">${fmt(c.totalCierreAnticipado)}</span></div>
+      <div class="info-row"><span class="lbl">Ya pagado</span><span class="val green">${fmt(c.totalCobrado)}</span></div>
+      <div class="info-row"><span class="lbl">Pago final para cerrar</span><span class="val big">${fmt(pagoFinal)}</span></div>
+      <div class="info-row"><span class="lbl">Ahorro del cliente</span><span class="val green">${fmt(c.ahorroInteres)}</span></div>
+      <button class="btn btn-success" style="margin-top:12px" onclick="cerrarCredito()">✓ Confirmar cierre anticipado</button>
+    </div>`;
+  }
+
+  // Calendario
+  html += `<div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:6px">
+      <div class="sec-title" style="margin:0">Calendario de pagos</div>
+      ${l.diasEliminados > 0 ? `<span class="badge badge-amber">${l.diasEliminados} día(s) adelantados por abonos</span>` : ''}
+    </div>
+    <div class="legend">
+      <div class="legend-item"><div class="leg-dot" style="background:var(--green-bg);border:1px solid var(--green-b)"></div>Pagó</div>
+      <div class="legend-item"><div class="leg-dot" style="background:var(--red-bg);border:1px solid var(--red-b)"></div>No pagó</div>
+      <div class="legend-item"><div class="leg-dot" style="background:var(--surf);border:1px solid var(--border2)"></div>Futuro</div>
+      <div class="legend-item"><div class="leg-dot" style="opacity:.3;background:var(--border);border:1px solid var(--border)"></div>Eliminado</div>
+    </div>
+    <div class="cal-wrap">
+      <div class="cal-grid" style="grid-template-columns:repeat(${COLS},minmax(0,1fr));min-width:${COLS*48}px">`;
+
+  ['Lu','Ma','Mi','Ju','Vi','Sá','Do'].forEach(d => {
+    html += `<div class="cal-hdr">${d}</div>`;
+  });
+
+  const firstDow = new Date(l.fecha + 'T12:00:00').getDay();
+  const offset   = firstDow === 0 ? 6 : firstDow - 1;
+  for (let i = 0; i < offset; i++) html += `<div></div>`;
+
+  for (let i = 0; i < l.plazo; i++) {
+    const d = addDays(l.fecha, i);
+    const esElim   = i >= c.plazoEfectivo;
+    const esCierre = l.cerrado && d > l.fechaCierre;
+    const esFuturo = !esElim && !esCierre && d > t;
+    const est   = l.dias[d] || 'pendiente';
+    const esHoy = d === t;
+
+    let cls = 'cal-day';
+    if (esElim || esCierre) cls += ' removed';
+    else if (esFuturo)      cls += ' future';
+    else if (est === 'pagado') cls += ' paid';
+    else cls += ' missed';
+    if (esHoy && !esElim)   cls += ' today-m';
+
+    const onclick = (!esElim && !esCierre && !esFuturo)
+      ? `onclick="toggleDia('${l.id}','${d}')"` : '';
+
+    let ico = '';
+    if (!esElim && !esCierre) {
+      if (est === 'pagado') ico = '<div class="d-ico" style="color:var(--green)">✓</div>';
+      else if (!esFuturo)   ico = '<div class="d-ico" style="color:var(--red)">✕</div>';
+    }
+
+    html += `<div class="${cls}" ${onclick} title="Día ${i+1} — ${fmtShortDate(d)}">
+      <div class="d-num">${i+1}</div>
+      ${ico}
+      <div class="d-amt">${(esElim||esCierre)?'—':fmtShort(c.cuotaDiaria)}</div>
+    </div>`;
+  }
+
+  html += `</div></div></div>`;
+
+  // Resumen por semana
+  const semanas = Math.ceil(c.plazoEfectivo / 7);
+  html += `<div class="card"><div class="sec-title">Resumen por semana</div>`;
+  for (let s = 0; s < semanas; s++) {
+    const desde = s * 7, hasta = Math.min((s+1)*7, c.plazoEfectivo);
+    let spag = 0, smora = 0, sfut = 0;
+    for (let i = desde; i < hasta; i++) {
+      const d = addDays(l.fecha, i);
+      if (d > t) { sfut++; }
+      else if (l.cerrado && d > l.fechaCierre) { sfut++; }
+      else if ((l.dias[d]||'pendiente') === 'pagado') { spag++; }
+      else { smora++; }
+    }
+    const tot = (hasta - desde) * c.cuotaDiaria;
+    const cobSem = spag * c.cuotaDiaria;
+    html += `<div class="sem-row">
+      <span style="color:var(--muted2)">Semana ${s+1} <span style="color:var(--muted);font-size:11px">(días ${desde+1}–${hasta})</span></span>
+      <div class="fg" style="gap:6px;align-items:center">
+        ${smora>0 ? `<span class="badge badge-red">${smora} sin pagar</span>` : ''}
+        ${sfut>0  ? `<span class="badge badge-gray">${sfut} pendiente${sfut>1?'s':''}</span>` : ''}
+        ${spag>0  ? `<span class="badge badge-green">${spag} pagado${spag>1?'s':''}</span>` : ''}
+        <span style="font-size:11px;color:var(--muted);font-family:'JetBrains Mono',monospace">${fmt(cobSem)}/${fmt(tot)}</span>
+      </div>
+    </div>`;
+  }
+  html += `</div>`;
+
+  // Historial abonos
+  if (l.abonos && l.abonos.length) {
+    html += `<div class="card"><div class="sec-title">Abonos y pagos especiales</div>`;
+    l.abonos.forEach(ab => {
+      html += `<div class="ab-row">
+        <div>
+          <div class="ab-monto">${fmt(ab.monto)}</div>
+          <div class="ab-desc">${ab.desc} · ${fmtShortDate(ab.fecha)}</div>
+        </div>
+        <button class="btn btn-sm btn-ghost" onclick="eliminarAbono('${l.id}','${ab.id}')" title="Deshacer">✕</button>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  document.getElementById('cal-content').innerHTML = html;
+
+  // Preview abono en tiempo real
+  const abInput = document.getElementById('ab-monto');
+  if (abInput) {
+    abInput.addEventListener('input', () => {
+      const m = parseFloat(abInput.value) || 0;
+      const prev = document.getElementById('ab-preview');
+      if (!prev) return;
+      const dias = Math.floor(m / c.cuotaDiaria);
+      if (!m) { prev.textContent = ''; return; }
+      prev.textContent = dias > 0
+        ? `→ Eliminaría ${dias} día(s). Nuevo plazo: ${c.plazoEfectivo - Math.min(dias, c.plazoEfectivo - c.diasPasados - 1)} días.`
+        : 'El monto es menor a una cuota diaria.';
+    });
+  }
+}
+
+// Alias para el oninput del preview de abono
+function previewAbono() {}
+
+// ═══════════════════════════════════════════════════
+// GENERACIÓN DE PDF (jsPDF + autotable)
+// ═══════════════════════════════════════════════════
+function generarPDF(loanId) {
+  const l = DB.find(x => x.id === loanId);
+  if (!l) return;
+
+  const btn = document.getElementById('pdf-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin">↻</span> Generando...'; }
+
+  const c = calcLoan(l);
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+
+  const W = 210, mg = 18;
+  const cw = W - mg * 2;
+  let y = mg;
+
+  const GREEN  = [34,  197, 94];
+  const RED    = [239, 68,  68];
+  const AMBER  = [245, 158, 11];
+  const DARK   = [15,  17,  23];
+  const SURF   = [26,  29,  39];
+  const BORDER = [42,  45,  58];
+  const TEXT   = [232, 234, 240];
+  const MUTED  = [107, 114, 128];
+
+  // ── Header ──
+  doc.setFillColor(...DARK);
+  doc.rect(0, 0, W, 38, 'F');
+  doc.setFillColor(...GREEN);
+  doc.rect(0, 36, W, 2, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(20); doc.setTextColor(...GREEN);
+  doc.text('PrestApp', mg, y + 8);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10); doc.setTextColor(...MUTED);
+  doc.text('Control de préstamos · 10% mensual · Pago diario', mg, y + 15);
+  doc.setFontSize(10); doc.setTextColor(...TEXT);
+  doc.text(`Estado de cuenta: ${l.nombre}`, mg, y + 23);
+  doc.setTextColor(...MUTED);
+  doc.text(`Generado: ${fmtDate(today())}`, W - mg, y + 23, { align: 'right' });
+  y = 46;
+
+  // ── Resumen general ──
+  doc.setFillColor(...SURF);
+  doc.roundedRect(mg, y, cw, 44, 3, 3, 'F');
+
+  const cols6 = cw / 3;
+  const datosRes = [
+    ['Capital prestado', fmt(l.monto), 'Cuota diaria', fmt(c.cuotaDiaria), 'Tasa mensual', `${l.tasa||10}%`],
+    ['Total a devolver', fmt(c.totalDeuda), 'Días efectivos', `${c.plazoEfectivo} días`, 'Inicio', fmtDate(l.fecha)],
+    ['Total cobrado', fmt(c.totalCobrado), 'Días pagados', `${c.diasPagados} / ${c.plazoEfectivo}`, 'Vencimiento', fmtDate(c.fechaFin)],
+    ['Saldo pendiente', l.cerrado ? '$0' : fmt(c.saldo), 'Días en mora', `${c.diasMora} días`, 'Estado', l.cerrado ? 'CERRADO' : c.diasMora > 0 ? 'CON MORA' : 'AL DÍA'],
+  ];
+
+  datosRes.forEach((row, ri) => {
+    for (let ci = 0; ci < 3; ci++) {
+      const x = mg + ci * cols6 + 4;
+      const yRow = y + 6 + ri * 10;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8); doc.setTextColor(...MUTED);
+      doc.text(row[ci*2], x, yRow);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      const val = row[ci*2+1];
+      const isGreen = val.startsWith('$') && ri === 2;
+      const isRed   = (ri === 3 && ci === 0 && !l.cerrado && c.saldo > 1) || (ri === 3 && ci === 2 && !l.cerrado && c.diasMora > 0);
+      const isAmber = ri === 3 && ci === 1 && !l.cerrado;
+      doc.setTextColor(...(isGreen ? GREEN : isRed ? RED : isAmber ? AMBER : TEXT));
+      doc.text(val, x, yRow + 5);
+    }
+  });
+  y += 50;
+
+  // ── Cierre anticipado (si aplica) ──
+  if (l.cerrado) {
+    doc.setFillColor(...[13,40,24]);
+    doc.roundedRect(mg, y, cw, 14, 3, 3, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...GREEN);
+    doc.text(`✓ Crédito cerrado anticipadamente el ${fmtDate(l.fechaCierre)}`, mg + 4, y + 6);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...[34,197,94]);
+    doc.text(`Pago final: ${fmt(l.pagoCierre)} · Interés sobre ${c.diasReales} días reales`, mg + 4, y + 11);
+    y += 18;
+  }
+
+  // ── Tabla de pagos diarios ──
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...TEXT);
+  doc.text('Historial de pagos diarios', mg, y + 6);
+  y += 10;
+
+  const filasPago = [];
+  const t = today();
+  for (let i = 0; i < c.plazoEfectivo; i++) {
+    const d = addDays(l.fecha, i);
+    if (d > t && !l.cerrado) break;
+    if (l.cerrado && d > l.fechaCierre) break;
+    const est = l.dias[d] || 'pendiente';
+    filasPago.push([
+      i + 1,
+      fmtDate(d),
+      est === 'pagado' ? 'Pagó' : 'No pagó',
+      est === 'pagado' ? fmt(c.cuotaDiaria) : '$0'
+    ]);
+  }
+
+  doc.autoTable({
+    startY: y,
+    head: [['#', 'Fecha', 'Estado', 'Monto']],
+    body: filasPago,
+    theme: 'plain',
+    styles: {
+      fontSize: 8, cellPadding: 2.5,
+      textColor: TEXT, lineColor: BORDER, lineWidth: 0.2
+    },
+    headStyles: {
+      fillColor: SURF, textColor: MUTED, fontStyle: 'bold', fontSize: 8
+    },
+    columnStyles: {
+      0: { cellWidth: 10, halign: 'center' },
+      1: { cellWidth: 40 },
+      2: { cellWidth: 30 },
+      3: { cellWidth: 30, halign: 'right' }
+    },
+    alternateRowStyles: { fillColor: [18,21,31] },
+    didParseCell: (data) => {
+      if (data.section === 'body' && data.column.index === 2) {
+        data.cell.styles.textColor = data.cell.raw === 'Pagó' ? GREEN : RED;
+        data.cell.styles.fontStyle = 'bold';
+      }
+      if (data.section === 'body' && data.column.index === 3 && data.cell.raw !== '$0') {
+        data.cell.styles.textColor = GREEN;
+      }
+    },
+    margin: { left: mg, right: mg }
+  });
+
+  y = doc.lastAutoTable.finalY + 8;
+
+  // ── Tabla de abonos ──
+  if (l.abonos && l.abonos.length) {
+    if (y > 240) { doc.addPage(); y = mg; }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...TEXT);
+    doc.text('Abonos y pagos especiales', mg, y + 6);
+    y += 10;
+    doc.autoTable({
+      startY: y,
+      head: [['Fecha', 'Descripción', 'Monto']],
+      body: l.abonos.map(ab => [fmtDate(ab.fecha), ab.desc, fmt(ab.monto)]),
+      theme: 'plain',
+      styles: { fontSize: 8, cellPadding: 2.5, textColor: TEXT, lineColor: BORDER, lineWidth: 0.2 },
+      headStyles: { fillColor: SURF, textColor: MUTED, fontStyle: 'bold', fontSize: 8 },
+      columnStyles: { 2: { halign: 'right', textColor: AMBER } },
+      alternateRowStyles: { fillColor: [18,21,31] },
+      margin: { left: mg, right: mg }
+    });
+    y = doc.lastAutoTable.finalY + 8;
+  }
+
+  // ── Resumen final ──
+  if (y > 250) { doc.addPage(); y = mg; }
+  doc.setFillColor(...SURF);
+  doc.roundedRect(mg, y, cw, 22, 3, 3, 'F');
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...MUTED);
+  doc.text('TOTAL COBRADO', mg + 4, y + 8);
+  doc.text('SALDO FINAL', mg + cw/2, y + 8);
+  doc.setFontSize(13);
+  doc.setTextColor(...GREEN);
+  doc.text(fmt(c.totalCobrado), mg + 4, y + 17);
+  doc.setTextColor(l.cerrado || c.saldo <= 1 ? GREEN : RED);
+  doc.text(l.cerrado ? '$0' : fmt(c.saldo), mg + cw/2, y + 17);
+
+  // ── Pie de página ──
+  const pageCount = doc.internal.getNumberOfPages();
+  for (let p = 1; p <= pageCount; p++) {
+    doc.setPage(p);
+    doc.setFillColor(...DARK);
+    doc.rect(0, 285, W, 12, 'F');
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...MUTED);
+    doc.text('PrestApp · Generado con fines de control personal', mg, 291);
+    doc.text(`Página ${p} de ${pageCount}`, W - mg, 291, { align: 'right' });
+  }
+
+  const nombreArchivo = `prestamo_${l.nombre.replace(/\s+/g,'_')}_${today()}.pdf`;
+  doc.save(nombreArchivo);
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '📄 Descargar PDF'; }
+}
+
+// ═══════════════════════════════════════════════════
+// NAVEGACIÓN
+// ═══════════════════════════════════════════════════
+function goTab(t) {
+  document.querySelectorAll('.tab').forEach((el, i) => el.classList.remove('active'));
+  document.querySelectorAll('.sec').forEach(el => el.classList.remove('on'));
+  const map = { list: 0, nuevo: 1, cal: 2 };
+  const tabs = document.querySelectorAll('.tab');
+  if (tabs[map[t]]) tabs[map[t]].classList.add('active');
+  const sec = document.getElementById('sec-' + t);
+  if (sec) sec.classList.add('on');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// ═══════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════
+document.getElementById('n-fecha').value = today();
+
+// Actualizar indicador de sync cada 2 segundos
+setInterval(() => {
+  const s = getSyncStatus();
+  const el = document.getElementById('sync-status');
+  if (el) { el.textContent = s.txt; el.style.color = s.color; }
+}, 2000);
+
+// Si Firebase tarda más de 3s, usar localStorage
+setTimeout(() => {
+  if (!window._dbReady) {
+    window._useLocal = true;
+    window._dbReady  = true;
+    window._renderAll();
+  }
+}, 3000);
+
+// Render inicial con localStorage mientras carga Firebase
+updateMetrics();
+renderList();
+</script>
+</body>
+</html>
