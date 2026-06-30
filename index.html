@@ -68,6 +68,7 @@ window._deleteDoc = async (id) => {
 window._firebaseReady = true;
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root {
     --bg:       #0F1117;
@@ -419,10 +420,13 @@ window._firebaseReady = true;
   </div>
 
   <!-- Tabs -->
-  <div class="tabs">
-    <button class="tab active" onclick="goTab('list')">Clientes</button>
-    <button class="tab" onclick="goTab('nuevo')">+ Nuevo préstamo</button>
-    <button class="tab" id="tab-cal" style="display:none" onclick="goTab('cal')">📅 Calendario</button>
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:0">
+    <div class="tabs" style="margin-bottom:0;flex:1">
+      <button class="tab active" onclick="goTab('list')">Clientes</button>
+      <button class="tab" onclick="goTab('nuevo')">+ Nuevo préstamo</button>
+      <button class="tab" id="tab-cal" style="display:none" onclick="goTab('cal')">📅 Calendario</button>
+    </div>
+    <button class="btn btn-sm btn-success" onclick="exportarTodoExcel()" style="margin-bottom:8px">📊 Exportar todo a Excel</button>
   </div>
 
   <!-- Lista -->
@@ -845,7 +849,10 @@ function renderCal() {
       </h2>
       <div style="font-size:12px;color:var(--muted)">${fmtDate(l.fecha)} → ${fmtDate(c.fechaFin)} · ${c.plazoEfectivo} días efectivos · <span style="color:var(--amber)">${l.tasa||10}% mensual</span></div>
     </div>
-    <button class="btn btn-sm" id="pdf-btn" onclick="generarPDF('${l.id}')">📄 Descargar PDF</button>
+    <div class="fg">
+      <button class="btn btn-sm" id="pdf-btn" onclick="generarPDF('${l.id}')">📄 PDF</button>
+      <button class="btn btn-sm btn-success" onclick="exportarClienteExcel('${l.id}')">📊 Excel</button>
+    </div>
   </div>`;
 
   // Alerta mora en calendario
@@ -1014,6 +1021,230 @@ function renderCal() {
 
 // Alias para el oninput del preview de abono
 function previewAbono() {}
+
+// ═══════════════════════════════════════════════════
+// EXPORTACIÓN A EXCEL (SheetJS)
+// ═══════════════════════════════════════════════════
+
+// Estilo de encabezado reutilizable
+function estiloHeader() {
+  return {
+    font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
+    fill: { fgColor: { rgb: "1A1D27" } },
+    alignment: { horizontal: "center", vertical: "center" },
+    border: {
+      bottom: { style: "thin", color: { rgb: "2A2D3A" } }
+    }
+  };
+}
+function estiloHeaderVerde() {
+  return {
+    font: { bold: true, color: { rgb: "FFFFFF" }, sz: 11 },
+    fill: { fgColor: { rgb: "22C55E" } },
+    alignment: { horizontal: "center", vertical: "center" }
+  };
+}
+function aplicarEstilo(ws, ref, estilo) {
+  if (!ws[ref]) ws[ref] = { t: 's', v: '' };
+  ws[ref].s = estilo;
+}
+function setColWidths(ws, widths) {
+  ws['!cols'] = widths.map(w => ({ wch: w }));
+}
+
+// ── Construir hoja "Resumen" (un cliente por fila) ──
+function construirHojaResumen(loans) {
+  const headers = [
+    'Cliente', 'Monto prestado', 'Tasa mensual (%)', 'Fecha inicio', 'Plazo original (días)',
+    'Plazo efectivo (días)', 'Fecha fin', 'Cuota diaria', 'Total a devolver', 'Total cobrado',
+    'Saldo pendiente', '% Pagado', 'Días pagados', 'Días en mora', 'Mora consecutiva actual',
+    'Estado', 'Días adelantados por abonos', 'Cerrado anticipado', 'Fecha de cierre', 'Ahorro por cierre anticipado'
+  ];
+  const rows = [headers];
+  const t = today();
+
+  loans.forEach(l => {
+    const c = calcLoan(l);
+    const fin = addDays(l.fecha, c.plazoEfectivo - 1);
+    const activo = !l.cerrado && t >= l.fecha && t <= fin;
+    const vencido = !l.cerrado && t > fin;
+    const estado = l.cerrado ? 'Cerrado anticipado' : activo ? 'Activo' : vencido ? 'Vencido' : 'Por iniciar';
+
+    rows.push([
+      l.nombre,
+      l.monto,
+      l.tasa || 10,
+      l.fecha,
+      l.plazo,
+      c.plazoEfectivo,
+      fin,
+      Math.round(c.cuotaDiaria),
+      Math.round(c.totalDeuda),
+      Math.round(c.totalCobrado),
+      l.cerrado ? 0 : Math.round(c.saldo),
+      Math.round(c.pct * 10) / 10,
+      c.diasPagados,
+      c.diasMora,
+      l.cerrado ? 0 : c.rachaActual,
+      estado,
+      l.diasEliminados || 0,
+      l.cerrado ? 'Sí' : 'No',
+      l.fechaCierre || '',
+      l.cerrado ? 0 : Math.round(c.ahorroInteres)
+    ]);
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  setColWidths(ws, [20,15,14,13,14,15,13,13,15,14,14,10,12,12,16,16,16,14,13,18]);
+
+  // Estilo encabezado
+  for (let i = 0; i < headers.length; i++) {
+    aplicarEstilo(ws, XLSX.utils.encode_cell({ r: 0, c: i }), estiloHeader());
+  }
+
+  // Formato de columnas numéricas/moneda/fecha
+  const monedaCols = [1,7,8,9,10,19];
+  const fechaCols = [3,6,18];
+  const pctCols = [2,11];
+  for (let r = 1; r <= loans.length; r++) {
+    monedaCols.forEach(c => {
+      const ref = XLSX.utils.encode_cell({ r, c });
+      if (ws[ref]) ws[ref].z = '$#,##0';
+    });
+    pctCols.forEach(c => {
+      const ref = XLSX.utils.encode_cell({ r, c });
+      if (ws[ref]) ws[ref].z = '0.0"%"';
+    });
+    fechaCols.forEach(c => {
+      const ref = XLSX.utils.encode_cell({ r, c });
+      if (ws[ref] && ws[ref].v) ws[ref].z = 'dd/mm/yyyy';
+    });
+    // Color condicional en columna Estado (col 15)
+    const estadoRef = XLSX.utils.encode_cell({ r, c: 15 });
+    const estadoVal = rows[r][15];
+    if (ws[estadoRef]) {
+      const colorMap = { 'Activo': '0F1E3A', 'Vencido': '2A0F0F', 'Cerrado anticipado': '0D2818', 'Por iniciar': '1A1D27' };
+      const textMap  = { 'Activo': '3B82F6', 'Vencido': 'EF4444', 'Cerrado anticipado': '22C55E', 'Por iniciar': '6B7280' };
+      ws[estadoRef].s = {
+        fill: { fgColor: { rgb: colorMap[estadoVal] || 'FFFFFF' } },
+        font: { color: { rgb: textMap[estadoVal] || '000000' }, bold: true },
+        alignment: { horizontal: 'center' }
+      };
+    }
+    // Color condicional en mora consecutiva (col 14)
+    const moraRef = XLSX.utils.encode_cell({ r, c: 14 });
+    if (ws[moraRef] && rows[r][14] > 2) {
+      ws[moraRef].s = { fill: { fgColor: { rgb: '2A0F0F' } }, font: { color: { rgb: 'EF4444' }, bold: true }, alignment: { horizontal: 'center' } };
+    }
+  }
+
+  ws['!freeze'] = { xSplit: 1, ySplit: 1 };
+  ws['!autofilter'] = { ref: `A1:${XLSX.utils.encode_col(headers.length-1)}1` };
+  return ws;
+}
+
+// ── Construir hoja "Detalle diario" (todos los días de todos los clientes) ──
+function construirHojaDetalle(loans) {
+  const headers = ['Cliente', 'Día #', 'Fecha', 'Día semana', 'Estado', 'Monto cuota', 'Acumulado cobrado'];
+  const rows = [headers];
+  const diasSemana = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+  const t = today();
+  const filasEstado = []; // para colorear después: {rowIndex, estado}
+
+  loans.forEach(l => {
+    const c = calcLoan(l);
+    let acumulado = 0;
+    for (let i = 0; i < c.plazoEfectivo; i++) {
+      const d = addDays(l.fecha, i);
+      if (d > t && !l.cerrado) break;
+      if (l.cerrado && d > l.fechaCierre) break;
+      const est = l.dias[d] || 'pendiente';
+      const pagado = est === 'pagado';
+      if (pagado) acumulado += c.cuotaDiaria;
+      const dow = diasSemana[new Date(d + 'T12:00:00').getDay()];
+      rows.push([
+        l.nombre, i + 1, d, dow,
+        pagado ? 'Pagó' : 'No pagó',
+        Math.round(c.cuotaDiaria),
+        Math.round(acumulado)
+      ]);
+      filasEstado.push({ row: rows.length - 1, pagado });
+    }
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  setColWidths(ws, [20, 8, 13, 13, 11, 14, 18]);
+
+  for (let i = 0; i < headers.length; i++) {
+    aplicarEstilo(ws, XLSX.utils.encode_cell({ r: 0, c: i }), estiloHeaderVerde());
+  }
+
+  filasEstado.forEach(({ row, pagado }) => {
+    const fechaRef = XLSX.utils.encode_cell({ r: row, c: 2 });
+    if (ws[fechaRef]) ws[fechaRef].z = 'dd/mm/yyyy';
+    const montoRef = XLSX.utils.encode_cell({ r: row, c: 5 });
+    if (ws[montoRef]) ws[montoRef].z = '$#,##0';
+    const acumRef = XLSX.utils.encode_cell({ r: row, c: 6 });
+    if (ws[acumRef]) ws[acumRef].z = '$#,##0';
+
+    const estadoRef = XLSX.utils.encode_cell({ r: row, c: 4 });
+    if (ws[estadoRef]) {
+      ws[estadoRef].s = pagado
+        ? { fill: { fgColor: { rgb: '0D2818' } }, font: { color: { rgb: '22C55E' }, bold: true }, alignment: { horizontal: 'center' } }
+        : { fill: { fgColor: { rgb: '2A0F0F' } }, font: { color: { rgb: 'EF4444' }, bold: true }, alignment: { horizontal: 'center' } };
+    }
+  });
+
+  ws['!freeze'] = { xSplit: 1, ySplit: 1 };
+  ws['!autofilter'] = { ref: `A1:G1` };
+  return ws;
+}
+
+// ── Construir hoja "Abonos" (historial de abonos especiales) ──
+function construirHojaAbonos(loans) {
+  const headers = ['Cliente', 'Fecha', 'Monto', 'Descripción', 'Días eliminados'];
+  const rows = [headers];
+  loans.forEach(l => {
+    (l.abonos || []).forEach(ab => {
+      rows.push([l.nombre, ab.fecha, Math.round(ab.monto), ab.desc, ab.diasEliminados || 0]);
+    });
+  });
+  if (rows.length === 1) rows.push(['(Sin abonos registrados)', '', '', '', '']);
+
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  setColWidths(ws, [20, 13, 14, 34, 16]);
+  for (let i = 0; i < headers.length; i++) {
+    aplicarEstilo(ws, XLSX.utils.encode_cell({ r: 0, c: i }), estiloHeader());
+  }
+  for (let r = 1; r < rows.length; r++) {
+    const fechaRef = XLSX.utils.encode_cell({ r, c: 1 });
+    if (ws[fechaRef] && rows[r][1]) ws[fechaRef].z = 'dd/mm/yyyy';
+    const montoRef = XLSX.utils.encode_cell({ r, c: 2 });
+    if (ws[montoRef] && rows[r][2] !== '') ws[montoRef].z = '$#,##0';
+  }
+  return ws;
+}
+
+// ── Exportar TODOS los clientes a un solo Excel ──
+function exportarTodoExcel() {
+  if (!DB.length) { alert('No hay préstamos para exportar.'); return; }
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, construirHojaResumen(DB), 'Resumen');
+  XLSX.utils.book_append_sheet(wb, construirHojaDetalle(DB), 'Detalle diario');
+  XLSX.utils.book_append_sheet(wb, construirHojaAbonos(DB), 'Abonos');
+  XLSX.writeFile(wb, `PrestApp_Resumen_General_${today()}.xlsx`);
+}
+
+// ── Exportar UN cliente a Excel ──
+function exportarClienteExcel(loanId) {
+  const l = DB.find(x => x.id === loanId);
+  if (!l) return;
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, construirHojaResumen([l]), 'Resumen');
+  XLSX.utils.book_append_sheet(wb, construirHojaDetalle([l]), 'Detalle diario');
+  XLSX.utils.book_append_sheet(wb, construirHojaAbonos([l]), 'Abonos');
+  XLSX.writeFile(wb, `Prestamo_${l.nombre.replace(/\s+/g,'_')}_${today()}.xlsx`);
+}
 
 // ═══════════════════════════════════════════════════
 // GENERACIÓN DE PDF (jsPDF + autotable)
