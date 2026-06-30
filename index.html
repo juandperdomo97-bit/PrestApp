@@ -1228,22 +1228,34 @@ function construirHojaAbonos(loans) {
 // ── Exportar TODOS los clientes a un solo Excel ──
 function exportarTodoExcel() {
   if (!DB.length) { alert('No hay préstamos para exportar.'); return; }
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, construirHojaResumen(DB), 'Resumen');
-  XLSX.utils.book_append_sheet(wb, construirHojaDetalle(DB), 'Detalle diario');
-  XLSX.utils.book_append_sheet(wb, construirHojaAbonos(DB), 'Abonos');
-  XLSX.writeFile(wb, `PrestApp_Resumen_General_${today()}.xlsx`);
+  try {
+    if (typeof XLSX === 'undefined') throw new Error('La librería de Excel no cargó. Revisa tu conexión e intenta de nuevo.');
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, construirHojaResumen(DB), 'Resumen');
+    XLSX.utils.book_append_sheet(wb, construirHojaDetalle(DB), 'Detalle diario');
+    XLSX.utils.book_append_sheet(wb, construirHojaAbonos(DB), 'Abonos');
+    XLSX.writeFile(wb, `PrestApp_Resumen_General_${today()}.xlsx`);
+  } catch (err) {
+    console.error('Error generando Excel:', err);
+    alert('No se pudo generar el Excel.\n\nDetalle: ' + err.message);
+  }
 }
 
 // ── Exportar UN cliente a Excel ──
 function exportarClienteExcel(loanId) {
   const l = DB.find(x => x.id === loanId);
   if (!l) return;
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, construirHojaResumen([l]), 'Resumen');
-  XLSX.utils.book_append_sheet(wb, construirHojaDetalle([l]), 'Detalle diario');
-  XLSX.utils.book_append_sheet(wb, construirHojaAbonos([l]), 'Abonos');
-  XLSX.writeFile(wb, `Prestamo_${l.nombre.replace(/\s+/g,'_')}_${today()}.xlsx`);
+  try {
+    if (typeof XLSX === 'undefined') throw new Error('La librería de Excel no cargó. Revisa tu conexión e intenta de nuevo.');
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, construirHojaResumen([l]), 'Resumen');
+    XLSX.utils.book_append_sheet(wb, construirHojaDetalle([l]), 'Detalle diario');
+    XLSX.utils.book_append_sheet(wb, construirHojaAbonos([l]), 'Abonos');
+    XLSX.writeFile(wb, `Prestamo_${l.nombre.replace(/\s+/g,'_')}_${today()}.xlsx`);
+  } catch (err) {
+    console.error('Error generando Excel:', err);
+    alert('No se pudo generar el Excel.\n\nDetalle: ' + err.message);
+  }
 }
 
 // ═══════════════════════════════════════════════════
@@ -1256,9 +1268,19 @@ function generarPDF(loanId) {
   const btn = document.getElementById('pdf-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin">↻</span> Generando...'; }
 
+  try {
+
+  if (!window.jspdf || !window.jspdf.jsPDF) {
+    throw new Error('La librería jsPDF no cargó. Revisa tu conexión a internet e intenta de nuevo.');
+  }
+
   const c = calcLoan(l);
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+
+  if (typeof doc.autoTable !== 'function') {
+    throw new Error('El plugin de tablas (autoTable) no cargó. Revisa tu conexión a internet e intenta de nuevo.');
+  }
 
   const W = 210, mg = 18;
   const cw = W - mg * 2;
@@ -1433,7 +1455,13 @@ function generarPDF(loanId) {
   const nombreArchivo = `prestamo_${l.nombre.replace(/\s+/g,'_')}_${today()}.pdf`;
   doc.save(nombreArchivo);
 
-  if (btn) { btn.disabled = false; btn.innerHTML = '📄 Descargar PDF'; }
+  if (btn) { btn.disabled = false; btn.innerHTML = '📄 PDF'; }
+
+  } catch (err) {
+    console.error('Error generando PDF:', err);
+    if (btn) { btn.disabled = false; btn.innerHTML = '📄 PDF'; }
+    alert('No se pudo generar el PDF.\n\nDetalle: ' + err.message + '\n\nSi el problema persiste, recarga la página e intenta de nuevo.');
+  }
 }
 
 // ═══════════════════════════════════════════════════
